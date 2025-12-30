@@ -1,0 +1,24 @@
+{
+  "name": "real_ai",
+  "version": "1.0.0",
+  "description": "Real AI - 智能对话助手",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "docx": "^9.5.1",
+    "file-saver": "^2.0.5",
+    "marked": "^9.1.6",
+    "vue": "^3.5.26"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.4",
+    "vite": "^5.4.21"
+  }
+}
