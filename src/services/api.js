@@ -61,9 +61,29 @@ export async function sendMessage(messages, model, apiKey) {
  * @param {string} model - 模型 ID
  * @param {string} apiKey - OpenRouter API Key
  * @param {Function} onChunk - 接收每个文本块的回调
+ * @param {Object} options - 可选参数
+ * @param {boolean} options.webSearch - 是否启用联网搜索
  * @returns {Promise<string>} 完整的 AI 回复内容
  */
-export async function sendMessageStream(messages, model, apiKey, onChunk) {
+export async function sendMessageStream(messages, model, apiKey, onChunk, options = {}) {
+  const { webSearch = false } = options
+
+  const requestBody = {
+    model: model,
+    messages: messages.map(msg => ({
+      role: msg.role,
+      content: msg.content
+    })),
+    stream: true
+  }
+
+  // 启用联网搜索
+  if (webSearch) {
+    requestBody.plugins = [
+      { id: 'web' }
+    ]
+  }
+
   const response = await fetch(OPENROUTER_API_URL, {
     method: 'POST',
     headers: {
@@ -72,14 +92,7 @@ export async function sendMessageStream(messages, model, apiKey, onChunk) {
       'HTTP-Referer': window.location.origin,
       'X-Title': 'Real AI'
     },
-    body: JSON.stringify({
-      model: model,
-      messages: messages.map(msg => ({
-        role: msg.role,
-        content: msg.content
-      })),
-      stream: true
-    })
+    body: JSON.stringify(requestBody)
   })
 
   if (!response.ok) {

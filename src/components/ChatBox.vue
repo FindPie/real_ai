@@ -4,6 +4,13 @@
     <div class="settings-bar">
       <ModelSelector v-model="selectedModel" />
       <button
+        @click="webSearchEnabled = !webSearchEnabled"
+        :class="['search-toggle', { active: webSearchEnabled }]"
+        :title="webSearchEnabled ? '关闭联网搜索' : '开启联网搜索'"
+      >
+        {{ webSearchEnabled ? '联网: 开' : '联网: 关' }}
+      </button>
+      <button
         @click="handleExportWord"
         :disabled="messages.length <= 1"
         class="export-button"
@@ -103,6 +110,7 @@ const messagesContainer = ref(null)
 
 // 配置
 const selectedModel = ref(localStorage.getItem('selected_model') || AVAILABLE_MODELS[0].id)
+const webSearchEnabled = ref(localStorage.getItem('web_search_enabled') === 'true')
 
 // 获取当前模型名称
 const currentModelName = computed(() => {
@@ -113,6 +121,10 @@ const currentModelName = computed(() => {
 // 保存配置到 localStorage
 watch(selectedModel, (val) => {
   localStorage.setItem('selected_model', val)
+})
+
+watch(webSearchEnabled, (val) => {
+  localStorage.setItem('web_search_enabled', val.toString())
 })
 
 // 导出为 Word
@@ -164,7 +176,8 @@ const handleSend = async () => {
       (chunk) => {
         streamingContent.value += chunk
         scrollToBottom()
-      }
+      },
+      { webSearch: webSearchEnabled.value }
     )
 
     // 添加完整的 AI 回复
@@ -204,6 +217,30 @@ const handleSend = async () => {
   flex-wrap: wrap;
   flex-shrink: 0;
   align-items: center;
+}
+
+.search-toggle {
+  padding: 6px 12px;
+  background: #6c757d;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.search-toggle:hover {
+  background: #5a6268;
+}
+
+.search-toggle.active {
+  background: #17a2b8;
+}
+
+.search-toggle.active:hover {
+  background: #138496;
 }
 
 .export-button {
@@ -439,6 +476,7 @@ const handleSend = async () => {
     padding: 6px 10px;
   }
 
+  .search-toggle,
   .export-button {
     padding: 5px 10px;
     font-size: 12px;
