@@ -1,4 +1,4 @@
-import { Document, Packer, Paragraph, TextRun, HeadingLevel } from 'docx'
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun } from 'docx'
 import { saveAs } from 'file-saver'
 
 /**
@@ -101,6 +101,62 @@ function parseInlineFormatting(text) {
 }
 
 /**
+ * 将 base64 图片转换为 ArrayBuffer
+ * @param {string} base64 - base64 图片数据
+ * @returns {Uint8Array} 图片数据
+ */
+function base64ToUint8Array(base64) {
+  // 移除 data:image/xxx;base64, 前缀
+  const base64Data = base64.split(',')[1]
+  const binaryString = atob(base64Data)
+  const bytes = new Uint8Array(binaryString.length)
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i)
+  }
+  return bytes
+}
+
+/**
+ * 创建图片段落
+ * @param {string} imageBase64 - base64 图片数据
+ * @param {number} index - 图片索引
+ * @returns {Paragraph|null} 包含图片的段落
+ */
+function createImageParagraph(imageBase64, index) {
+  try {
+    const imageData = base64ToUint8Array(imageBase64)
+
+    return new Paragraph({
+      children: [
+        new ImageRun({
+          data: imageData,
+          transformation: {
+            width: 300,
+            height: 300
+          },
+          type: 'png'
+        })
+      ],
+      spacing: { before: 100, after: 100 }
+    })
+  } catch (err) {
+    console.error('导出图片失败:', err)
+    // 如果图片处理失败，返回提示文字
+    return new Paragraph({
+      children: [
+        new TextRun({
+          text: `[图片 ${index + 1}]`,
+          italics: true,
+          color: '999999',
+          size: 20
+        })
+      ],
+      spacing: { before: 100, after: 100 }
+    })
+  }
+}
+
+/**
  * 导出对话为 Word 文档
  * @param {Array} messages - 消息数组
  * @param {string} modelName - 模型名称
@@ -170,6 +226,16 @@ export async function exportToWord(messages, modelName = 'AI') {
     // 消息内容
     const contentParagraphs = contentToParagraphs(msg.content, isUser)
     children.push(...contentParagraphs)
+
+    // 处理图片
+    if (msg.images && msg.images.length > 0) {
+      for (let i = 0; i < msg.images.length; i++) {
+        const imgParagraph = createImageParagraph(msg.images[i], i)
+        if (imgParagraph) {
+          children.push(imgParagraph)
+        }
+      }
+    }
 
     // 消息分隔
     children.push(new Paragraph({

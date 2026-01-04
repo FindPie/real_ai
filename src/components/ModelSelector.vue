@@ -16,7 +16,7 @@
           :key="model.id"
           :value="model.id"
         >
-          {{ model.name }}
+          {{ model.name }}{{ getTypeLabel(model.type) }}
         </option>
       </optgroup>
     </select>
@@ -45,6 +45,15 @@ const groupedModels = computed(() => {
     return groups
   }, {})
 })
+
+// 获取模型类型标签
+const getTypeLabel = (type) => {
+  const labels = {
+    'vision': ' 👁️',
+    'image-gen': ' 🎨'
+  }
+  return labels[type] || ''
+}
 </script>
 
 <style scoped>

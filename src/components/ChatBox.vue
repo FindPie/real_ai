@@ -27,13 +27,37 @@
         :key="index"
         :class="['message', message.role]"
       >
-        <div
-          v-if="message.role === 'assistant'"
-          class="message-content markdown-body"
-          v-html="renderMarkdown(message.content)"
-        ></div>
-        <div v-else class="message-content">
-          {{ message.content }}
+        <div class="message-wrapper">
+          <div
+            v-if="message.role === 'assistant'"
+            class="message-content markdown-body"
+            v-html="renderMarkdown(message.content)"
+          ></div>
+          <div v-else class="message-content">
+            {{ message.content }}
+          </div>
+          <!-- 图片展示区域 -->
+          <div v-if="message.images && message.images.length > 0" class="message-images">
+            <div
+              v-for="(img, imgIndex) in message.images"
+              :key="imgIndex"
+              class="image-wrapper"
+            >
+              <img
+                :src="img"
+                :alt="'AI 生成的图片 ' + (imgIndex + 1)"
+                class="generated-image"
+                @click="openImagePreview(img)"
+              />
+            </div>
+          </div>
+          <button
+            class="copy-button"
+            @click="copyMessage(message.content, index)"
+            :title="copiedIndex === index ? '已复制' : '复制'"
+          >
+            {{ copiedIndex === index ? '✓' : '复制' }}
+          </button>
         </div>
       </div>
       <div v-if="loading" class="message assistant">
@@ -42,10 +66,25 @@
           class="message-content markdown-body"
           v-html="renderMarkdown(streamingContent)"
         ></div>
-        <div class="message-content loading" v-else>
+        <div class="message-content loading" v-else-if="streamingImages.length === 0">
           <span class="dot"></span>
           <span class="dot"></span>
           <span class="dot"></span>
+        </div>
+        <!-- 流式加载时的图片展示 -->
+        <div v-if="streamingImages.length > 0" class="message-images">
+          <div
+            v-for="(img, imgIndex) in streamingImages"
+            :key="imgIndex"
+            class="image-wrapper"
+          >
+            <img
+              :src="img"
+              :alt="'AI 生成的图片 ' + (imgIndex + 1)"
+              class="generated-image"
+              @click="openImagePreview(img)"
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -56,22 +95,61 @@
       <button @click="error = ''" class="close-error">×</button>
     </div>
 
+    <!-- 图片预览模态框 -->
+    <div v-if="previewImage" class="image-preview-overlay" @click="closeImagePreview">
+      <div class="image-preview-container">
+        <img :src="previewImage" alt="预览图片" class="preview-image" />
+        <button class="close-preview" @click.stop="closeImagePreview">×</button>
+      </div>
+    </div>
+
     <!-- 输入区域 -->
-    <div class="input-container">
-      <input
-        v-model="inputText"
-        @keyup.enter="handleSend"
-        placeholder="输入你的消息..."
-        :disabled="loading"
-        class="message-input"
-      />
-      <button
-        @click="handleSend"
-        :disabled="loading || !inputText.trim()"
-        class="send-button"
-      >
-        发送
-      </button>
+    <div class="input-area">
+      <!-- 上传图片预览 -->
+      <div v-if="uploadedImages.length > 0" class="uploaded-images-preview">
+        <div
+          v-for="(img, index) in uploadedImages"
+          :key="index"
+          class="uploaded-image-item"
+        >
+          <img :src="img.preview" :alt="'上传图片 ' + (index + 1)" />
+          <button class="remove-image" @click="removeUploadedImage(index)">×</button>
+        </div>
+      </div>
+      <div class="input-container">
+        <input
+          type="file"
+          ref="fileInputRef"
+          accept="image/*"
+          multiple
+          @change="handleFileSelect"
+          style="display: none"
+        />
+        <button
+          class="upload-button"
+          @click="triggerFileInput"
+          :disabled="loading"
+          :title="isVisionModel ? '上传图片' : '当前模型不支持图片理解'"
+          :class="{ disabled: !isVisionModel }"
+        >
+          📷
+        </button>
+        <textarea
+          v-model="inputText"
+          @keydown.enter.exact.prevent="handleSend"
+          :placeholder="uploadedImages.length > 0 ? '描述图片或提问...' : '输入你的消息... (Shift+Enter 换行)'"
+          :disabled="loading"
+          class="message-input"
+          rows="1"
+        ></textarea>
+        <button
+          @click="handleSend"
+          :disabled="loading || (!inputText.trim() && uploadedImages.length === 0)"
+          class="send-button"
+        >
+          发送
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -100,13 +178,18 @@ const renderMarkdown = (content) => {
 
 // 状态
 const messages = ref([
-  { role: 'assistant', content: '你好！我是 Real AI，选择模型开始对话吧。' }
+  { role: 'assistant', content: '你好！我是 Real AI，选择模型开始对话吧（带 👁️ 标记的模型可以上传图片进行图片识别）。', images: [] }
 ])
 const inputText = ref('')
 const loading = ref(false)
 const error = ref('')
 const streamingContent = ref('')
+const streamingImages = ref([])
 const messagesContainer = ref(null)
+const copiedIndex = ref(-1)
+const previewImage = ref('')
+const fileInputRef = ref(null)
+const uploadedImages = ref([]) // { file, preview, base64 }
 
 // 配置
 const selectedModel = ref(localStorage.getItem('selected_model') || AVAILABLE_MODELS[0].id)
@@ -118,6 +201,12 @@ const currentModelName = computed(() => {
   return model ? model.name : 'AI'
 })
 
+// 判断当前模型是否支持视觉
+const isVisionModel = computed(() => {
+  const model = AVAILABLE_MODELS.find(m => m.id === selectedModel.value)
+  return model?.type === 'vision'
+})
+
 // 保存配置到 localStorage
 watch(selectedModel, (val) => {
   localStorage.setItem('selected_model', val)
@@ -126,6 +215,91 @@ watch(selectedModel, (val) => {
 watch(webSearchEnabled, (val) => {
   localStorage.setItem('web_search_enabled', val.toString())
 })
+
+// 打开图片预览
+const openImagePreview = (imageUrl) => {
+  previewImage.value = imageUrl
+}
+
+// 关闭图片预览
+const closeImagePreview = () => {
+  previewImage.value = ''
+}
+
+// 触发文件选择
+const triggerFileInput = () => {
+  if (!isVisionModel.value) {
+    error.value = '当前模型不支持图片理解，请选择带 👁️ 标记的视觉模型'
+    return
+  }
+  fileInputRef.value?.click()
+}
+
+// 处理文件选择
+const handleFileSelect = async (event) => {
+  const files = event.target.files
+  if (!files || files.length === 0) return
+
+  for (const file of files) {
+    if (!file.type.startsWith('image/')) continue
+
+    // 创建预览 URL
+    const preview = URL.createObjectURL(file)
+
+    // 转换为 base64
+    const base64 = await fileToBase64(file)
+
+    uploadedImages.value.push({
+      file,
+      preview,
+      base64,
+      type: file.type
+    })
+  }
+
+  // 清空 input 以便再次选择相同文件
+  event.target.value = ''
+}
+
+// 文件转 base64
+const fileToBase64 = (file) => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
+// 移除已上传的图片
+const removeUploadedImage = (index) => {
+  const img = uploadedImages.value[index]
+  if (img?.preview) {
+    URL.revokeObjectURL(img.preview)
+  }
+  uploadedImages.value.splice(index, 1)
+}
+
+// 清空所有上传的图片
+const clearUploadedImages = () => {
+  uploadedImages.value.forEach(img => {
+    if (img.preview) URL.revokeObjectURL(img.preview)
+  })
+  uploadedImages.value = []
+}
+
+// 复制消息
+const copyMessage = async (content, index) => {
+  try {
+    await navigator.clipboard.writeText(content)
+    copiedIndex.value = index
+    setTimeout(() => {
+      copiedIndex.value = -1
+    }, 2000)
+  } catch (err) {
+    console.error('复制失败:', err)
+  }
+}
 
 // 导出为 Word
 const handleExportWord = async () => {
@@ -146,30 +320,56 @@ const scrollToBottom = async () => {
 
 const handleSend = async () => {
   const text = inputText.value.trim()
-  if (!text || loading.value) return
+  const hasImages = uploadedImages.value.length > 0
+
+  // 至少需要文字或图片
+  if ((!text && !hasImages) || loading.value) return
 
   if (!apiKey) {
     error.value = '请在 .env 文件中配置 VITE_OPENROUTER_API_KEY'
     return
   }
 
-  // 添加用户消息
-  messages.value.push({ role: 'user', content: text })
+  // 保存当前上传的图片用于显示（使用 base64，因为 preview URL 会被释放）
+  const currentImages = uploadedImages.value.map(img => img.base64)
+  const imageDataList = uploadedImages.value.map(img => ({
+    base64: img.base64,
+    type: img.type
+  }))
+
+  // 添加用户消息（包含图片预览）
+  messages.value.push({
+    role: 'user',
+    content: text || '(图片)',
+    images: currentImages
+  })
+
   inputText.value = ''
+  clearUploadedImages()
   loading.value = true
   error.value = ''
   streamingContent.value = ''
+  streamingImages.value = []
   scrollToBottom()
 
   try {
     // 构建消息历史（排除系统欢迎消息）
-    const chatHistory = messages.value.slice(1).map(msg => ({
-      role: msg.role,
-      content: msg.content
-    }))
+    const chatHistory = messages.value.slice(1).map((msg, idx) => {
+      // 最后一条消息（刚添加的用户消息）需要包含图片
+      if (idx === messages.value.length - 2 && imageDataList.length > 0) {
+        return {
+          role: msg.role,
+          content: buildMultimodalContent(msg.content === '(图片)' ? '' : msg.content, imageDataList)
+        }
+      }
+      return {
+        role: msg.role,
+        content: msg.content
+      }
+    })
 
     // 流式调用 API
-    const fullContent = await sendMessageStream(
+    const result = await sendMessageStream(
       chatHistory,
       selectedModel.value,
       apiKey,
@@ -177,13 +377,20 @@ const handleSend = async () => {
         streamingContent.value += chunk
         scrollToBottom()
       },
-      { webSearch: webSearchEnabled.value }
+      {
+        webSearch: webSearchEnabled.value,
+        onImage: (imageUrl) => {
+          streamingImages.value.push(imageUrl)
+          scrollToBottom()
+        }
+      }
     )
 
     // 添加完整的 AI 回复
     messages.value.push({
       role: 'assistant',
-      content: fullContent
+      content: result.content,
+      images: result.images || []
     })
   } catch (err) {
     error.value = err.message || '请求失败，请检查 API Key 和网络'
@@ -191,8 +398,34 @@ const handleSend = async () => {
   } finally {
     loading.value = false
     streamingContent.value = ''
+    streamingImages.value = []
     scrollToBottom()
   }
+}
+
+// 构建多模态消息内容
+const buildMultimodalContent = (text, images) => {
+  const content = []
+
+  // 添加文本
+  if (text) {
+    content.push({
+      type: 'text',
+      text: text
+    })
+  }
+
+  // 添加图片
+  for (const img of images) {
+    content.push({
+      type: 'image_url',
+      image_url: {
+        url: img.base64
+      }
+    })
+  }
+
+  return content
 }
 </script>
 
@@ -285,6 +518,29 @@ const handleSend = async () => {
 
 .message.assistant {
   align-self: flex-start;
+}
+
+.message-wrapper {
+  position: relative;
+  padding-bottom: 20px;
+}
+
+.copy-button {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  padding: 2px 8px;
+  background: transparent;
+  color: #999;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.copy-button:hover {
+  color: #007bff;
 }
 
 .message-content {
@@ -401,6 +657,79 @@ const handleSend = async () => {
   margin: 16px 0;
 }
 
+/* 图片展示样式 */
+.message-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.image-wrapper {
+  position: relative;
+  max-width: 300px;
+}
+
+.generated-image {
+  max-width: 100%;
+  max-height: 300px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  object-fit: contain;
+  background: #f5f5f5;
+}
+
+.generated-image:hover {
+  transform: scale(1.02);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+/* 图片预览模态框 */
+.image-preview-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.image-preview-container {
+  position: relative;
+  max-width: 90vw;
+  max-height: 90vh;
+}
+
+.preview-image {
+  max-width: 100%;
+  max-height: 90vh;
+  object-fit: contain;
+  border-radius: 8px;
+}
+
+.close-preview {
+  position: absolute;
+  top: -40px;
+  right: 0;
+  background: transparent;
+  border: none;
+  color: white;
+  font-size: 32px;
+  cursor: pointer;
+  padding: 4px 12px;
+  transition: color 0.2s;
+}
+
+.close-preview:hover {
+  color: #ff6b6b;
+}
+
 .error-message {
   display: flex;
   align-items: center;
@@ -420,24 +749,107 @@ const handleSend = async () => {
   padding: 0 4px;
 }
 
+/* 输入区域 */
+.input-area {
+  flex-shrink: 0;
+  background: white;
+  border-top: 1px solid #eee;
+}
+
+.uploaded-images-preview {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  overflow-x: auto;
+  background: #fafafa;
+}
+
+.uploaded-image-item {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.uploaded-image-item img {
+  width: 60px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+}
+
+.remove-image {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ff4444;
+  color: white;
+  border: none;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.remove-image:hover {
+  background: #cc0000;
+}
+
 .input-container {
   display: flex;
   gap: 8px;
   padding: 10px 12px;
-  border-top: 1px solid #eee;
-  flex-shrink: 0;
+  align-items: flex-end;
+}
+
+.upload-button {
+  width: 40px;
+  height: 40px;
+  border: 1px solid #ddd;
+  border-radius: 50%;
   background: white;
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.upload-button:hover:not(:disabled) {
+  border-color: #007bff;
+  background: #f0f7ff;
+}
+
+.upload-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.upload-button.disabled {
+  opacity: 0.4;
 }
 
 .message-input {
   flex: 1;
   padding: 10px 14px;
   border: 1px solid #ddd;
-  border-radius: 24px;
+  border-radius: 18px;
   font-size: 16px; /* 防止 iOS 自动缩放 */
   outline: none;
   transition: border-color 0.2s;
   min-width: 0; /* 允许收缩 */
+  resize: none; /* 禁用手动调整大小 */
+  min-height: 40px;
+  max-height: 150px;
+  overflow-y: auto;
+  line-height: 1.4;
+  font-family: inherit;
 }
 
 .message-input:focus {
@@ -496,6 +908,10 @@ const handleSend = async () => {
     font-size: 14px;
   }
 
+  .copy-button {
+    font-size: 11px;
+  }
+
   .input-container {
     padding: 8px 10px;
     gap: 6px;
@@ -503,6 +919,8 @@ const handleSend = async () => {
 
   .message-input {
     padding: 8px 12px;
+    min-height: 36px;
+    max-height: 120px;
   }
 
   .send-button {
@@ -517,6 +935,34 @@ const handleSend = async () => {
 
   .markdown-body :deep(code) {
     font-size: 12px;
+  }
+
+  .image-wrapper {
+    max-width: 200px;
+  }
+
+  .generated-image {
+    max-height: 200px;
+  }
+
+  .close-preview {
+    top: -35px;
+    font-size: 28px;
+  }
+
+  .uploaded-images-preview {
+    padding: 6px 10px;
+  }
+
+  .uploaded-image-item img {
+    width: 50px;
+    height: 50px;
+  }
+
+  .upload-button {
+    width: 36px;
+    height: 36px;
+    font-size: 16px;
   }
 }
 
