@@ -18,6 +18,14 @@
       >
         导出 Word
       </button>
+      <button
+        @click="clearChat"
+        :disabled="messages.length <= 1"
+        class="clear-button"
+        title="清空对话记录"
+      >
+        清空对话
+      </button>
     </div>
 
     <!-- 消息列表 -->
@@ -28,12 +36,13 @@
         :class="['message', message.role]"
       >
         <div class="message-wrapper">
+          <!-- 文本内容区域，仅在有内容时显示 -->
           <div
-            v-if="message.role === 'assistant'"
+            v-if="message.role === 'assistant' && message.content"
             class="message-content markdown-body"
             v-html="renderMarkdown(message.content)"
           ></div>
-          <div v-else class="message-content">
+          <div v-else-if="message.role !== 'assistant' && message.content" class="message-content">
             {{ message.content }}
           </div>
           <!-- 图片展示区域 -->
@@ -51,7 +60,9 @@
               />
             </div>
           </div>
+          <!-- 复制按钮，仅在有文本内容时显示 -->
           <button
+            v-if="message.content"
             class="copy-button"
             @click="copyMessage(message.content, index)"
             :title="copiedIndex === index ? '已复制' : '复制'"
@@ -93,6 +104,16 @@
     <div v-if="error" class="error-message">
       {{ error }}
       <button @click="error = ''" class="close-error">×</button>
+    </div>
+
+    <!-- 文生图模型使用建议 -->
+    <div v-if="isImageGenModel" class="image-gen-tips">
+      <div class="tips-title">🎨 文生图模型使用建议：</div>
+      <ul>
+        <li>详细描述想要生成的图片内容、风格、色调</li>
+        <li>可以指定图片风格：写实、动漫、油画、水彩等</li>
+        <li>描述越详细，生成效果越好</li>
+      </ul>
     </div>
 
     <!-- 图片预览模态框 -->
@@ -176,10 +197,27 @@ const renderMarkdown = (content) => {
   return marked.parse(content)
 }
 
+// 默认欢迎消息
+const defaultWelcomeMessage = { role: 'assistant', content: '你好！我是 Real AI，选择模型开始对话吧。\n\n👁️ 标记：支持图片识别\n🎨 标记：支持文生图', images: [] }
+
+// 从 localStorage 加载历史对话
+const loadChatHistory = () => {
+  try {
+    const saved = localStorage.getItem('chat_history')
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed
+      }
+    }
+  } catch (e) {
+    console.error('加载历史对话失败:', e)
+  }
+  return [defaultWelcomeMessage]
+}
+
 // 状态
-const messages = ref([
-  { role: 'assistant', content: '你好！我是 Real AI，选择模型开始对话吧（带 👁️ 标记的模型可以上传图片进行图片识别）。', images: [] }
-])
+const messages = ref(loadChatHistory())
 const inputText = ref('')
 const loading = ref(false)
 const error = ref('')
@@ -207,6 +245,12 @@ const isVisionModel = computed(() => {
   return model?.type === 'vision'
 })
 
+// 判断当前模型是否为文生图模型
+const isImageGenModel = computed(() => {
+  const model = AVAILABLE_MODELS.find(m => m.id === selectedModel.value)
+  return model?.type === 'image-gen'
+})
+
 // 保存配置到 localStorage
 watch(selectedModel, (val) => {
   localStorage.setItem('selected_model', val)
@@ -215,6 +259,21 @@ watch(selectedModel, (val) => {
 watch(webSearchEnabled, (val) => {
   localStorage.setItem('web_search_enabled', val.toString())
 })
+
+// 保存对话记录到 localStorage
+watch(messages, (val) => {
+  try {
+    localStorage.setItem('chat_history', JSON.stringify(val))
+  } catch (e) {
+    console.error('保存对话记录失败:', e)
+  }
+}, { deep: true })
+
+// 清空对话记录
+const clearChat = () => {
+  messages.value = [defaultWelcomeMessage]
+  localStorage.removeItem('chat_history')
+}
 
 // 打开图片预览
 const openImagePreview = (imageUrl) => {
@@ -497,6 +556,27 @@ const buildMultimodalContent = (text, images) => {
   cursor: not-allowed;
 }
 
+.clear-button {
+  padding: 6px 12px;
+  background: #dc3545;
+  color: white;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+  white-space: nowrap;
+}
+
+.clear-button:hover:not(:disabled) {
+  background: #c82333;
+}
+
+.clear-button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
 .messages-container {
   flex: 1;
   overflow-y: auto;
@@ -749,6 +829,29 @@ const buildMultimodalContent = (text, images) => {
   padding: 0 4px;
 }
 
+/* 文生图使用建议 */
+.image-gen-tips {
+  padding: 10px 16px;
+  background: linear-gradient(135deg, #fff3e0 0%, #ffe0b2 100%);
+  border-left: 4px solid #ff9800;
+  font-size: 13px;
+  color: #5d4037;
+}
+
+.image-gen-tips .tips-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.image-gen-tips ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.image-gen-tips li {
+  margin: 3px 0;
+}
+
 /* 输入区域 */
 .input-area {
   flex-shrink: 0;
@@ -889,7 +992,8 @@ const buildMultimodalContent = (text, images) => {
   }
 
   .search-toggle,
-  .export-button {
+  .export-button,
+  .clear-button {
     padding: 5px 10px;
     font-size: 12px;
   }

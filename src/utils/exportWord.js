@@ -254,6 +254,10 @@ export async function exportToWord(messages, modelName = 'AI') {
 
   // 生成并下载
   const blob = await Packer.toBlob(doc)
+  // 确保使用正确的 MIME 类型
+  const wordBlob = new Blob([blob], {
+    type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  })
   const filename = `Real_AI_对话_${new Date().toISOString().slice(0, 10)}.docx`
-  saveAs(blob, filename)
+  saveAs(wordBlob, filename)
 }
