@@ -989,13 +989,21 @@ const buildMultimodalContent = (text, images) => {
 
   .settings-bar {
     padding: 6px 10px;
+    gap: 6px;
+  }
+
+  /* 让模型选择器占据整行 */
+  .settings-bar :deep(.model-selector) {
+    flex: 0 0 100%;
+    order: -1;
   }
 
   .search-toggle,
   .export-button,
   .clear-button {
-    padding: 5px 10px;
-    font-size: 12px;
+    padding: 5px 8px;
+    font-size: 11px;
+    flex: 1;
   }
 
   .messages-container {
