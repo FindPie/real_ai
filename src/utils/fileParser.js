@@ -1,10 +1,9 @@
 // 文件解析工具
 import * as pdfjsLib from 'pdfjs-dist'
-import pdfjsWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
 import mammoth from 'mammoth'
 
-// 设置 worker 路径
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker
+// 使用 CDN 加载 worker（unpkg 比 cdnjs 更稳定）
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@5.4.530/build/pdf.worker.min.mjs'
 
 /**
  * 解析 PDF 文件
