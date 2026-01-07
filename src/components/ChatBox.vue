@@ -137,6 +137,19 @@
           <button class="remove-image" @click="removeUploadedImage(index)">×</button>
         </div>
       </div>
+      <!-- 上传文件预览 -->
+      <div v-if="uploadedFiles.length > 0" class="uploaded-files-preview">
+        <div
+          v-for="(file, index) in uploadedFiles"
+          :key="index"
+          class="uploaded-file-item"
+        >
+          <span class="file-icon">📄</span>
+          <span class="file-name">{{ file.name }}</span>
+          <span class="file-size">({{ formatFileSize(file.size) }})</span>
+          <button class="remove-file" @click="removeUploadedFile(index)">×</button>
+        </div>
+      </div>
       <div class="input-container">
         <input
           type="file"
@@ -144,6 +157,14 @@
           accept="image/*"
           multiple
           @change="handleFileSelect"
+          style="display: none"
+        />
+        <input
+          type="file"
+          ref="docFileInputRef"
+          :accept="SUPPORTED_FILE_TYPES"
+          multiple
+          @change="handleDocFileSelect"
           style="display: none"
         />
         <button
@@ -155,17 +176,25 @@
         >
           📷
         </button>
+        <button
+          class="upload-button doc-upload"
+          @click="triggerDocFileInput"
+          :disabled="loading"
+          title="上传文档 (PDF, Word, TXT等)"
+        >
+          📎
+        </button>
         <textarea
           v-model="inputText"
           @keydown.enter.exact.prevent="handleSend"
-          :placeholder="uploadedImages.length > 0 ? '描述图片或提问...' : '输入你的消息... (Shift+Enter 换行)'"
+          :placeholder="getInputPlaceholder"
           :disabled="loading"
           class="message-input"
           rows="1"
         ></textarea>
         <button
           @click="handleSend"
-          :disabled="loading || (!inputText.trim() && uploadedImages.length === 0)"
+          :disabled="loading || (!inputText.trim() && uploadedImages.length === 0 && uploadedFiles.length === 0)"
           class="send-button"
         >
           发送
@@ -181,6 +210,7 @@ import { marked } from 'marked'
 import ModelSelector from './ModelSelector.vue'
 import { sendMessageStream, AVAILABLE_MODELS } from '../services/api.js'
 import { exportToWord } from '../utils/exportWord.js'
+import { parseFile, SUPPORTED_FILE_TYPES, formatFileSize } from '../utils/fileParser.js'
 
 // 从环境变量获取 API Key
 const apiKey = import.meta.env.VITE_OPENROUTER_API_KEY || ''
@@ -227,7 +257,9 @@ const messagesContainer = ref(null)
 const copiedIndex = ref(-1)
 const previewImage = ref('')
 const fileInputRef = ref(null)
+const docFileInputRef = ref(null)
 const uploadedImages = ref([]) // { file, preview, base64 }
+const uploadedFiles = ref([]) // { name, content, type, size }
 
 // 配置
 const selectedModel = ref(localStorage.getItem('selected_model') || AVAILABLE_MODELS[0].id)
@@ -249,6 +281,17 @@ const isVisionModel = computed(() => {
 const isImageGenModel = computed(() => {
   const model = AVAILABLE_MODELS.find(m => m.id === selectedModel.value)
   return model?.type === 'image-gen'
+})
+
+// 获取输入框占位符
+const getInputPlaceholder = computed(() => {
+  if (uploadedFiles.value.length > 0) {
+    return '输入关于文件的问题...'
+  }
+  if (uploadedImages.value.length > 0) {
+    return '描述图片或提问...'
+  }
+  return '输入你的消息... (Shift+Enter 换行)'
 })
 
 // 保存配置到 localStorage
@@ -347,6 +390,50 @@ const clearUploadedImages = () => {
   uploadedImages.value = []
 }
 
+// 触发文档文件选择
+const triggerDocFileInput = () => {
+  docFileInputRef.value?.click()
+}
+
+// 处理文档文件选择
+const handleDocFileSelect = async (event) => {
+  const files = event.target.files
+  if (!files || files.length === 0) return
+
+  for (const file of files) {
+    // 检查文件大小（限制 10MB）
+    if (file.size > 10 * 1024 * 1024) {
+      error.value = `文件 ${file.name} 太大，最大支持 10MB`
+      continue
+    }
+
+    try {
+      const result = await parseFile(file)
+      uploadedFiles.value.push({
+        name: result.name,
+        content: result.content,
+        type: result.type,
+        size: file.size
+      })
+    } catch (err) {
+      error.value = err.message
+    }
+  }
+
+  // 清空 input 以便再次选择相同文件
+  event.target.value = ''
+}
+
+// 移除已上传的文件
+const removeUploadedFile = (index) => {
+  uploadedFiles.value.splice(index, 1)
+}
+
+// 清空所有上传的文件
+const clearUploadedFiles = () => {
+  uploadedFiles.value = []
+}
+
 // 复制消息
 const copyMessage = async (content, index) => {
   try {
@@ -380,9 +467,10 @@ const scrollToBottom = async () => {
 const handleSend = async () => {
   const text = inputText.value.trim()
   const hasImages = uploadedImages.value.length > 0
+  const hasFiles = uploadedFiles.value.length > 0
 
-  // 至少需要文字或图片
-  if ((!text && !hasImages) || loading.value) return
+  // 至少需要文字、图片或文件
+  if ((!text && !hasImages && !hasFiles) || loading.value) return
 
   if (!apiKey) {
     error.value = '请在 .env 文件中配置 VITE_OPENROUTER_API_KEY'
@@ -396,15 +484,42 @@ const handleSend = async () => {
     type: img.type
   }))
 
+  // 构建包含文件内容的消息
+  let messageContent = text
+  const currentFiles = [...uploadedFiles.value]
+
+  if (currentFiles.length > 0) {
+    const fileContents = currentFiles.map(file => {
+      return `【${file.type}文件: ${file.name}】\n${file.content}`
+    }).join('\n\n---\n\n')
+
+    if (text) {
+      messageContent = `${text}\n\n${fileContents}`
+    } else {
+      messageContent = fileContents
+    }
+  }
+
+  // 显示给用户的消息（简化版，不显示完整文件内容）
+  let displayContent = text || ''
+  if (currentFiles.length > 0) {
+    const fileNames = currentFiles.map(f => `📄 ${f.name}`).join('\n')
+    displayContent = displayContent ? `${displayContent}\n\n${fileNames}` : fileNames
+  }
+  if (!displayContent && hasImages) {
+    displayContent = '(图片)'
+  }
+
   // 添加用户消息（包含图片预览）
   messages.value.push({
     role: 'user',
-    content: text || '(图片)',
+    content: displayContent,
     images: currentImages
   })
 
   inputText.value = ''
   clearUploadedImages()
+  clearUploadedFiles()
   loading.value = true
   error.value = ''
   streamingContent.value = ''
@@ -413,19 +528,23 @@ const handleSend = async () => {
 
   try {
     // 构建消息历史（排除系统欢迎消息）
-    const chatHistory = messages.value.slice(1).map((msg, idx) => {
-      // 最后一条消息（刚添加的用户消息）需要包含图片
-      if (idx === messages.value.length - 2 && imageDataList.length > 0) {
-        return {
-          role: msg.role,
-          content: buildMultimodalContent(msg.content === '(图片)' ? '' : msg.content, imageDataList)
-        }
-      }
-      return {
-        role: msg.role,
-        content: msg.content
-      }
-    })
+    const chatHistory = messages.value.slice(1, -1).map(msg => ({
+      role: msg.role,
+      content: msg.content
+    }))
+
+    // 添加最后一条用户消息（包含完整文件内容和图片）
+    if (imageDataList.length > 0) {
+      chatHistory.push({
+        role: 'user',
+        content: buildMultimodalContent(messageContent, imageDataList)
+      })
+    } else {
+      chatHistory.push({
+        role: 'user',
+        content: messageContent
+      })
+    }
 
     // 流式调用 API
     const result = await sendMessageStream(
@@ -899,6 +1018,64 @@ const buildMultimodalContent = (text, images) => {
 }
 
 .remove-image:hover {
+  background: #cc0000;
+}
+
+/* 上传文件预览 */
+.uploaded-files-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #eee;
+}
+
+.uploaded-file-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  font-size: 13px;
+}
+
+.uploaded-file-item .file-icon {
+  font-size: 16px;
+}
+
+.uploaded-file-item .file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #333;
+}
+
+.uploaded-file-item .file-size {
+  color: #888;
+  font-size: 12px;
+}
+
+.uploaded-file-item .remove-file {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #ff4444;
+  color: white;
+  border: none;
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.uploaded-file-item .remove-file:hover {
   background: #cc0000;
 }
 
