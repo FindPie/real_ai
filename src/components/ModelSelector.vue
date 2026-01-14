@@ -50,7 +50,8 @@ const groupedModels = computed(() => {
 const getTypeLabel = (type) => {
   const labels = {
     'vision': ' 👁️',
-    'image-gen': ' 🎨'
+    'image-gen': ' 🎨',
+    'reasoning': ' 🧠'
   }
   return labels[type] || ''
 }

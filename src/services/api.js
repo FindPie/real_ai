@@ -21,6 +21,8 @@ export const AVAILABLE_MODELS = [
   { id: 'qwen/qwen3-235b-a22b-thinking-2507', name: 'Qwen3 235B Thinking', provider: 'Alibaba', type: 'chat' },
   { id: 'qwen/qwen3-vl-235b-a22b-instruct', name: 'Qwen3 VL 235B [视觉]', provider: 'Alibaba', type: 'vision' },
   { id: 'deepseek/deepseek-v3.2', name: 'DeepSeek V3.2', provider: 'DeepSeek', type: 'chat' },
+  { id: 'x-ai/grok-4.1-fast', name: 'Grok 4.1 Fast', provider: 'xAI', type: 'reasoning' },
+  { id: 'z-ai/glm-4.7', name: 'GLM-4.7', provider: 'Zhipu', type: 'reasoning' },
 ]
 
 /**
@@ -84,6 +86,11 @@ export async function sendMessageStream(messages, model, apiKey, onChunk, option
   const modelInfo = AVAILABLE_MODELS.find(m => m.id === model)
   if (modelInfo?.type === 'image-gen') {
     requestBody.modalities = ['image', 'text']
+  }
+
+  // 推理模型需要添加 reasoning 参数
+  if (modelInfo?.type === 'reasoning') {
+    requestBody.reasoning = { enabled: true }
   }
 
   // 启用联网搜索
