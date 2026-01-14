@@ -5,6 +5,7 @@ const OPENROUTER_API_URL = 'https://openrouter.ai/api/v1/chat/completions'
 // type: 'chat' - 纯文本对话
 // type: 'vision' - 支持图片理解
 // type: 'image-gen' - 支持图片生成
+// type: 'reasoning' - 支持深度推理（会自动启用 reasoning 参数，模型会先进行思考再回答，适合数学、逻辑、编程等复杂问题）
 
 // 可选模型列表
 export const AVAILABLE_MODELS = [

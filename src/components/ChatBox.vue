@@ -228,7 +228,7 @@ const renderMarkdown = (content) => {
 }
 
 // 默认欢迎消息
-const defaultWelcomeMessage = { role: 'assistant', content: '你好！我是 Real AI，选择模型开始对话吧。\n\n👁️ 标记：支持图片识别\n🎨 标记：支持文生图', images: [] }
+const defaultWelcomeMessage = { role: 'assistant', content: '你好！我是 Real AI，选择模型开始对话吧。\n\n👁️ 标记：支持图片识别\n🎨 标记：支持文生图\n🧠 标记：支持深度推理', images: [] }
 
 // 从 localStorage 加载历史对话
 const loadChatHistory = () => {
