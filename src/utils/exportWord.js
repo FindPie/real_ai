@@ -1,17 +1,126 @@
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun } from 'docx'
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, ImageRun, Table, TableRow, TableCell, WidthType, BorderStyle } from 'docx'
 import { saveAs } from 'file-saver'
+
+/**
+ * 检测 Markdown 表格并转换为 Word Table
+ * @param {string[]} lines - 文本行数组
+ * @param {number} startIndex - 起始行索引
+ * @returns {{ table: Table|null, endIndex: number }} 表格对象和结束索引
+ */
+function parseMarkdownTable(lines, startIndex) {
+  const tableLines = []
+  let i = startIndex
+
+  // 收集表格行（直到遇到非表格行）
+  while (i < lines.length && lines[i].trim().startsWith('|')) {
+    tableLines.push(lines[i])
+    i++
+  }
+
+  if (tableLines.length < 2) {
+    return { table: null, endIndex: startIndex }
+  }
+
+  // 解析表格
+  const rows = []
+
+  for (let rowIndex = 0; rowIndex < tableLines.length; rowIndex++) {
+    const line = tableLines[rowIndex].trim()
+
+    // 检测分隔符行（如 |---|---|）
+    if (line.match(/^\|[\s:-]+\|/)) {
+      continue
+    }
+
+    // 解析单元格
+    const cells = line
+      .split('|')
+      .filter(cell => cell.trim())
+      .map(cell => cell.trim())
+
+    if (cells.length === 0) continue
+
+    // 创建表格行
+    const isHeader = rowIndex === 0 && tableLines[1] && tableLines[1].match(/^\|[\s:-]+\|/)
+
+    const tableCells = cells.map(cellText => {
+      return new TableCell({
+        children: [
+          new Paragraph({
+            children: [
+              new TextRun({
+                text: cellText,
+                bold: isHeader,
+                size: 20
+              })
+            ]
+          })
+        ],
+        shading: isHeader ? {
+          fill: 'F5F5F5'
+        } : undefined,
+        margins: {
+          top: 100,
+          bottom: 100,
+          left: 100,
+          right: 100
+        }
+      })
+    })
+
+    rows.push(new TableRow({
+      children: tableCells
+    }))
+  }
+
+  if (rows.length === 0) {
+    return { table: null, endIndex: startIndex }
+  }
+
+  // 创建表格
+  const table = new Table({
+    rows: rows,
+    width: {
+      size: 100,
+      type: WidthType.PERCENTAGE
+    },
+    borders: {
+      top: { style: BorderStyle.SINGLE, size: 1, color: 'DDDDDD' },
+      bottom: { style: BorderStyle.SINGLE, size: 1, color: 'DDDDDD' },
+      left: { style: BorderStyle.SINGLE, size: 1, color: 'DDDDDD' },
+      right: { style: BorderStyle.SINGLE, size: 1, color: 'DDDDDD' },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: 'DDDDDD' },
+      insideVertical: { style: BorderStyle.SINGLE, size: 1, color: 'DDDDDD' }
+    }
+  })
+
+  return { table, endIndex: i }
+}
 
 /**
  * 将消息内容转换为 Word 段落
  * @param {string} content - 消息内容
  * @param {boolean} isUser - 是否为用户消息
- * @returns {Paragraph[]} Word 段落数组
+ * @returns {Array} Word 段落和表格数组
  */
 function contentToParagraphs(content, isUser) {
   const paragraphs = []
   const lines = content.split('\n')
 
-  for (const line of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i]
+
+    // 检测表格
+    if (line.trim().startsWith('|')) {
+      const { table, endIndex } = parseMarkdownTable(lines, i)
+      if (table) {
+        paragraphs.push(table)
+        i = endIndex - 1 // -1 因为 for 循环会 i++
+        continue
+      }
+    }
+
+    // 原有的其他格式处理
     // 处理标题
     if (line.startsWith('### ')) {
       paragraphs.push(new Paragraph({
